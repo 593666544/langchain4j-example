@@ -23,111 +23,148 @@ import shared.Assistant;
 import java.util.List;
 
 import static dev.langchain4j.data.document.loader.FileSystemDocumentLoader.loadDocument;
-import static dev.langchain4j.model.openai.OpenAiChatModelName.GPT_4_O_MINI;
 import static shared.Utils.*;
 
 public class Naive_RAG_Example {
 
     /**
-     * This example demonstrates how to implement a naive Retrieval-Augmented Generation (RAG) application.
-     * By "naive", we mean that we won't use any advanced RAG techniques.
-     * In each interaction with the Large Language Model (LLM), we will:
-     * 1. Take the user's query as-is.
-     * 2. Embed it using an embedding model.
-     * 3. Use the query's embedding to search an embedding store (containing small segments of your documents)
-     * for the X most relevant segments.
-     * 4. Append the found segments to the user's query.
-     * 5. Send the combined input (user query + segments) to the LLM.
-     * 6. Hope that:
-     * - The user's query is well-formulated and contains all necessary details for retrieval.
-     * - The found segments are relevant to the user's query.
+     * 中文学习说明（Naive RAG）：
+     * 这是“手动版”RAG，目标是让你看清完整管线，而不是追求最强效果。
+     *
+     * 每轮问答的核心链路：
+     * 1. 接收用户原始问题（不做查询改写）。
+     * 2. 将问题向量化。
+     * 3. 到向量库检索最相近的文本片段（TopK）。
+     * 4. 将这些片段拼接进提示词上下文。
+     * 5. 交给聊天模型生成答案。
+     *
+     * “Naive”的局限：
+     * - 若用户问题表达不完整（如“他什么时候出生？”），检索可能失败。
+     * - 检索到的片段可能带噪声，影响回答质量。
+     *
+     * 但它是学习 RAG 的最佳起点：所有关键零件都明确可见。
      */
-
+    /**
+     * 示例程序入口。
+     * <p>
+     * 关键对象：
+     * - {@code assistant}：封装了聊天模型、检索器与记忆的 AI Service。
+     * <p>
+     * 方法职责：
+     * 1. 创建 Naive RAG 助手；
+     * 2. 进入命令行多轮问答。
+     *
+     * @param args 命令行参数（本示例未使用）
+     */
     public static void main(String[] args) {
 
-        // Let's create an assistant that will know about our document
+        // 步骤 1：通过工厂方法创建 Assistant。
+        // 子步骤 1.1：传入 documentPath，声明“哪份文档是知识源”。
+        // 子步骤 1.2：createAssistant(...) 内部会完成“切片 -> 向量化 -> 入库 -> 检索器装配”。
         Assistant assistant = createAssistant("documents/miles-of-smiles-terms-of-use.txt");
 
-        // Now, let's start the conversation with the assistant. We can ask questions like:
-        // - Can I cancel my reservation?
-        // - I had an accident, should I pay extra?
+        // 步骤 2：启动交互式问答循环。
+        // 子步骤 2.1：你在控制台输入问题。
+        // 子步骤 2.2：内部调用 assistant.answer(...) 触发 Naive RAG 检索与回答流程。
+        // 子步骤 2.3：输入 exit 退出。
         startConversationWith(assistant);
     }
 
+    /**
+     * 创建一个可运行的 Naive RAG 助手。
+     * <p>
+     * 关键对象：
+     * - {@code ChatModel chatModel}：最终答案生成器。
+     * - {@code Document document}：知识源文档。
+     * - {@code List<TextSegment> segments}：切片后的候选知识块。
+     * - {@code EmbeddingModel embeddingModel}：文本向量化模型。
+     * - {@code EmbeddingStore<TextSegment> embeddingStore}：向量存储（语义检索底座）。
+     * - {@code ContentRetriever contentRetriever}：检索器（每轮按问题召回相关片段）。
+     * - {@code ChatMemory chatMemory}：对话上下文记忆。
+     *
+     * @param documentPath 资源目录下的文档相对路径
+     * @return 装配完成的 Assistant 代理对象
+     */
     private static Assistant createAssistant(String documentPath) {
 
-        // First, let's create a chat model, also known as a LLM, which will answer our queries.
-        // In this example, we will use OpenAI's gpt-4o-mini, but you can choose any supported model.
-        // Langchain4j currently supports more than 10 popular LLM providers.
+        // 步骤 1：创建聊天模型 ChatModel（回答生成器）。
+        // 子步骤 1.1：OpenAiChatModel.builder() 进入构建器模式。
+        // 子步骤 1.2：apiKey(...) 注入访问凭据。
+        // 子步骤 1.3：modelName("gpt-4o-mini") 指定回答模型。
+        // 子步骤 1.4：build() 生成不可变模型实例。
         ChatModel chatModel = OpenAiChatModel.builder()
                 .apiKey(OPENAI_API_KEY)
-                .modelName(GPT_4_O_MINI)
+                .modelName("gpt-4o-mini")
                 .build();
 
 
-        // Now, let's load a document that we want to use for RAG.
-        // We will use the terms of use from an imaginary car rental company, "Miles of Smiles".
-        // For this example, we'll import only a single document, but you can load as many as you need.
-        // LangChain4j offers built-in support for loading documents from various sources:
-        // File System, URL, Amazon S3, Azure Blob Storage, GitHub, Tencent COS.
-        // Additionally, LangChain4j supports parsing multiple document types:
-        // text, pdf, doc, xls, ppt.
-        // However, you can also manually import your data from other sources.
+        // 步骤 2：加载知识文档（原始语料输入）。
+        // 子步骤 2.1：创建 DocumentParser，决定“文件如何转成 Document”。
+        // 子步骤 2.2：TextDocumentParser 表示按纯文本读取，不做结构化解析。
+        // 子步骤 2.3：loadDocument(...) 返回 Document 对象。
+        // 子步骤 2.4：该 Document 仍是整篇内容，尚未切片。
         DocumentParser documentParser = new TextDocumentParser();
         Document document = loadDocument(toPath(documentPath), documentParser);
 
 
-        // Now, we need to split this document into smaller segments, also known as "chunks."
-        // This approach allows us to send only relevant segments to the LLM in response to a user query,
-        // rather than the entire document. For instance, if a user asks about cancellation policies,
-        // we will identify and send only those segments related to cancellation.
-        // A good starting point is to use a recursive document splitter that initially attempts
-        // to split by paragraphs. If a paragraph is too large to fit into a single segment,
-        // the splitter will recursively divide it by newlines, then by sentences, and finally by words,
-        // if necessary, to ensure each piece of text fits into a single segment.
+        // 步骤 3：文档切片（Chunking）。
+        // 子步骤 3.1：DocumentSplitters.recursive(300, 0) 创建递归切分器。
+        // 子步骤 3.2：300 表示目标块大小（字符/Token近似，取决于实现）。
+        // 子步骤 3.3：0 表示块间无重叠（教学场景先简化）。
+        // 子步骤 3.4：split(document) 输出 List<TextSegment>。
+        // 子步骤 3.5：每个 TextSegment 将成为向量索引的最小检索单元。
         DocumentSplitter splitter = DocumentSplitters.recursive(300, 0);
         List<TextSegment> segments = splitter.split(document);
 
 
-        // Now, we need to embed (also known as "vectorize") these segments.
-        // Embedding is needed for performing similarity searches.
-        // For this example, we'll use a local in-process embedding model, but you can choose any supported model.
-        // Langchain4j currently supports more than 10 popular embedding model providers.
+        // 步骤 4：文本向量化（Embedding）。
+        // 子步骤 4.1：new BgeSmallEnV15QuantizedEmbeddingModel() 初始化 embedding 模型。
+        // 子步骤 4.2：embedAll(segments) 对所有切片批量向量化。
+        // 子步骤 4.3：content() 取出 List<Embedding>。
+        // 子步骤 4.4：embeddings 与 segments 按索引一一对应。
         EmbeddingModel embeddingModel = new BgeSmallEnV15QuantizedEmbeddingModel();
         List<Embedding> embeddings = embeddingModel.embedAll(segments).content();
 
 
-        // Next, we will store these embeddings in an embedding store (also known as a "vector database").
-        // This store will be used to search for relevant segments during each interaction with the LLM.
-        // For simplicity, this example uses an in-memory embedding store, but you can choose from any supported store.
-        // Langchain4j currently supports more than 15 popular embedding stores.
+        // 步骤 5：写入向量库（Embedding Store）。
+        // 子步骤 5.1：创建 InMemoryEmbeddingStore（内存向量库实现）。
+        // 子步骤 5.2：addAll(embeddings, segments) 批量写入“向量 + 原文切片”映射。
+        // 子步骤 5.3：后续检索命中向量后即可反查对应 TextSegment 内容。
         EmbeddingStore<TextSegment> embeddingStore = new InMemoryEmbeddingStore<>();
         embeddingStore.addAll(embeddings, segments);
 
-        // We could also use EmbeddingStoreIngestor to hide manual steps above behind a simpler API.
-        // See an example of using EmbeddingStoreIngestor in _01_Advanced_RAG_with_Query_Compression_Example.
+        // 注：上面“切片 + 向量化 + 入库”也可用 EmbeddingStoreIngestor 一键完成。
+        // 本例故意手写，是为了帮助你看清每个阶段。
 
 
-        // The content retriever is responsible for retrieving relevant content based on a user query.
-        // Currently, it is capable of retrieving text segments, but future enhancements will include support for
-        // additional modalities like images, audio, and more.
+        // 步骤 6：构建内容检索器（RAG 查询入口）。
+        // 子步骤 6.1：embeddingStore(...) 声明“到哪个向量库检索”。
+        // 子步骤 6.2：embeddingModel(...) 声明“如何把用户问题转查询向量”。
+        // 子步骤 6.3：maxResults(2) 限制召回条数为 2，降低噪声与 token 成本。
+        // 子步骤 6.4：minScore(0.5) 设置最低相似度阈值，过滤弱相关片段。
+        // 子步骤 6.5：build() 得到 ContentRetriever 实例。
         ContentRetriever contentRetriever = EmbeddingStoreContentRetriever.builder()
+                // 子步骤 6.1 代码位。
                 .embeddingStore(embeddingStore)
+                // 子步骤 6.2 代码位。
                 .embeddingModel(embeddingModel)
-                .maxResults(2) // on each interaction we will retrieve the 2 most relevant segments
-                .minScore(0.5) // we want to retrieve segments at least somewhat similar to user query
+                .maxResults(2) // 子步骤 6.3：最多召回 2 条
+                .minScore(0.5) // 子步骤 6.4：低于阈值直接丢弃
                 .build();
 
 
-        // Optionally, we can use a chat memory, enabling back-and-forth conversation with the LLM
-        // and allowing it to remember previous interactions.
-        // Currently, LangChain4j offers two chat memory implementations:
-        // MessageWindowChatMemory and TokenWindowChatMemory.
+        // 步骤 7：配置对话记忆（可选但推荐）。
+        // 子步骤 7.1：MessageWindowChatMemory.withMaxMessages(10) 创建窗口记忆。
+        // 子步骤 7.2：仅保留最近 10 条消息，避免上下文无限膨胀。
         ChatMemory chatMemory = MessageWindowChatMemory.withMaxMessages(10);
 
 
-        // The final step is to build our AI Service,
-        // configuring it to use the components we've created above.
+        // 步骤 8：组装 AI Service 代理对象（输出）。
+        // 子步骤 8.1：AiServices.builder(Assistant.class) 绑定接口契约。
+        // 子步骤 8.2：chatModel(...) 注入回答模型。
+        // 子步骤 8.3：contentRetriever(...) 注入检索器。
+        // 子步骤 8.4：chatMemory(...) 注入多轮记忆。
+        // 子步骤 8.5：build() 返回运行时代理，实现 Assistant.answer(...)。
         return AiServices.builder(Assistant.class)
                 .chatModel(chatModel)
                 .contentRetriever(contentRetriever)

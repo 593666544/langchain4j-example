@@ -1,3 +1,7 @@
+-- 预置演示数据：
+-- 让 SQL Retriever 在第一次运行时就有可查询内容，无需手动插入。
+
+-- 客户样例数据
 INSERT INTO customers (customer_id, first_name, last_name, email)
 VALUES (1, 'John', 'Doe', 'john.doe@example.com'),
        (2, 'Jane', 'Smith', 'jane.smith@example.com'),
@@ -5,6 +9,7 @@ VALUES (1, 'John', 'Doe', 'john.doe@example.com'),
        (4, 'Bob', 'Williams', 'bob.williams@example.com'),
        (5, 'Carol', 'Brown', 'carol.brown@example.com');
 
+-- 商品样例数据
 INSERT INTO products (product_id, product_name, price)
 VALUES (10, 'Notebook', 12.99),
        (20, 'Pen', 1.50),
@@ -12,6 +17,8 @@ VALUES (10, 'Notebook', 12.99),
        (40, 'Backpack', 49.99),
        (50, 'Stapler', 7.99);
 
+-- 订单样例数据
+-- 数据中包含不同客户、商品与数量，用于演示计数、排行、聚合等问题。
 INSERT INTO orders (order_id, customer_id, product_id, quantity, order_date)
 VALUES (100, 1, 10, 2, '2024-04-20'),
        (200, 2, 20, 5, '2024-04-21'),
