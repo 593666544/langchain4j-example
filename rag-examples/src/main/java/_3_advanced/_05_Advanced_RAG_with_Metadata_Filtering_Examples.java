@@ -91,6 +91,8 @@ class _05_Advanced_RAG_with_Metadata_Filtering_Examples {
         // 步骤 3：定义静态过滤条件 onlyDogs。
         // 子步骤 3.1：metadataKey("animal").isEqualTo("dog") 固定筛选 dog。
         // 子步骤 3.2：该过滤条件与用户问题无关，每次请求都一致。
+        // 为什么过滤应在检索阶段生效：
+        // 这样可以从源头缩小候选集合，避免“先召回后丢弃”造成的噪声与不必要成本。
         Filter onlyDogs = metadataKey("animal").isEqualTo("dog");
 
         // 步骤 4：构建带静态过滤的检索器。
@@ -170,6 +172,8 @@ class _05_Advanced_RAG_with_Metadata_Filtering_Examples {
         // 子步骤 3.2：从 query.metadata().chatMemoryId() 读取当前会话ID。
         // 子步骤 3.3：输出 Filter：metadataKey("userId").isEqualTo(当前会话ID)。
         // 子步骤 3.4：这样每个会话只检索自己的数据。
+        // 为什么用 chatMemoryId 做隔离锚点：
+        // 它与会话天然绑定，不依赖模型自行理解“你是谁”，隔离规则更可控。
         Function<Query, Filter> filterByUserId =
                 // 核心表达式：按 query 的 chatMemoryId 动态生成过滤条件。
                 (query) -> metadataKey("userId").isEqualTo(query.metadata().chatMemoryId().toString());
@@ -187,6 +191,8 @@ class _05_Advanced_RAG_with_Metadata_Filtering_Examples {
         // 子步骤 5.1：接口方法 chat(userId, userMessage) 中 userId 会进入 @MemoryId。
         // 子步骤 5.2：@MemoryId 会成为 query metadata 的 chatMemoryId。
         // 子步骤 5.3：从而与 dynamicFilter 逻辑联动，实现“按用户隔离检索”。
+        // 为什么要让接口显式接收 userId：
+        // 隔离条件变成可观察、可测试的输入，不会隐式散落在提示词或全局变量里。
         PersonalizedAssistant personalizedAssistant = AiServices.builder(PersonalizedAssistant.class)
                 .chatModel(chatModel)
                 .contentRetriever(contentRetriever)
@@ -232,6 +238,8 @@ class _05_Advanced_RAG_with_Metadata_Filtering_Examples {
         // 子步骤 2.2：列 genre，类型 VARCHAR，并提示合法值集合。
         // 子步骤 2.3：列 year，类型 INT。
         // 子步骤 2.4：这个定义帮助 LLM 把自然语言约束转成结构化过滤表达式。
+        // 为什么要给表结构定义：
+        // 它相当于给 LLM 一个“可用字段白名单”，减少胡乱生成不存在字段的概率。
         TableDefinition tableDefinition = TableDefinition.builder()
                 .name("movies")
                 .addColumn("genre", "VARCHAR", "one of: [comedy, drama, action]")

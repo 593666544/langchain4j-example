@@ -86,16 +86,23 @@ public class _01_Advanced_RAG_with_Query_Compression_Example {
         // 子步骤 1.2：初始化 embedding 模型。
         // Embedding 模型：用于文档切片向量化 + 查询向量化。
         // 关键对象名：embeddingModel。
+        // 为什么必须单独创建 embeddingModel：
+        // 文档入库和用户查询必须投影到同一向量空间，才能进行可比的相似度计算。
         EmbeddingModel embeddingModel = new BgeSmallEnV15QuantizedEmbeddingModel();
 
         // 子步骤 1.3：初始化向量库存储。
         // 向量库存储：保存切片向量及其原文。
         // 关键对象名：embeddingStore。
+        // 为什么要有 embeddingStore：
+        // 它是“可检索知识索引”的载体，没有它就没有 RAG 的 retrieval 阶段。
         EmbeddingStore<TextSegment> embeddingStore = new InMemoryEmbeddingStore<>();
 
         // 子步骤 1.4：构建摄取器（把文档加工成向量索引）。
         // 摄取器：一键执行切片、向量化、入库流水线。
         // 关键对象名：ingestor。
+        // 这里沿用 recursive(300, 0)：
+        // - 300：平衡“语义完整度”和“检索粒度”；
+        // - 0：先不重叠以便观察基础行为，生产通常会加 overlap 提升边界语义连续性。
         EmbeddingStoreIngestor ingestor = EmbeddingStoreIngestor.builder()
                 .documentSplitter(DocumentSplitters.recursive(300, 0))
                 .embeddingModel(embeddingModel)
@@ -116,11 +123,15 @@ public class _01_Advanced_RAG_with_Query_Compression_Example {
         // 子步骤 1.7：创建查询转换器。
         // 关键组件：查询转换器（压缩/改写查询）。
         // 它会把“用户当前问题 + 历史对话”压缩成更完整、更适合检索的查询文本。
+        // 为什么在检索前改写：
+        // 向量检索更依赖“语义完整表达”，直接检索省略指代的追问通常召回不稳。
         QueryTransformer queryTransformer = new CompressingQueryTransformer(chatModel);
 
         // 子步骤 1.8：创建检索器。
         // 检索器：使用改写后的查询在向量库中检索高相关片段。
         // 关键对象名：contentRetriever。
+        // 参数取舍：
+        // maxResults(2) 控制注入上下文长度；minScore(0.6) 过滤弱相关片段，减少噪声。
         ContentRetriever contentRetriever = EmbeddingStoreContentRetriever.builder()
                 .embeddingStore(embeddingStore)
                 .embeddingModel(embeddingModel)
@@ -132,6 +143,8 @@ public class _01_Advanced_RAG_with_Query_Compression_Example {
         // RetrievalAugmentor 是 Advanced RAG 的装配中心。
         // 关键对象名：retrievalAugmentor。
         // 在这里把“查询改写 + 内容检索”等步骤串成完整 RAG 流。
+        // 为什么不直接只配 contentRetriever：
+        // 因为 queryTransformer 属于“检索前处理”，需要通过 augmentor 显式编排执行顺序。
         RetrievalAugmentor retrievalAugmentor = DefaultRetrievalAugmentor.builder()
                 .queryTransformer(queryTransformer)
                 .contentRetriever(contentRetriever)

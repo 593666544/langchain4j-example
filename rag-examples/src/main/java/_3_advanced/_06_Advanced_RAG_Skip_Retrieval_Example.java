@@ -94,6 +94,10 @@ public class _06_Advanced_RAG_Skip_Retrieval_Example {
                 embed(toPath("documents/miles-of-smiles-terms-of-use.txt"), embeddingModel);
 
         // 关键对象名：contentRetriever（业务相关问题的默认检索器）。
+        // 为什么先建一个“默认 retriever”：
+        // Skip Retrieval 不是取消检索，而是“按条件决定是否调用已有检索器”。
+        // 参数说明：
+        // maxResults(2) 与 minScore(0.6) 用于约束“执行检索时”的上下文质量和长度。
         ContentRetriever contentRetriever = EmbeddingStoreContentRetriever.builder()
                 .embeddingStore(embeddingStore)
                 .embeddingModel(embeddingModel)
@@ -111,6 +115,8 @@ public class _06_Advanced_RAG_Skip_Retrieval_Example {
         // 子步骤 6.4：实现 QueryRouter 决策逻辑。
         // 自定义路由器：在这里实现“是否检索”的决策逻辑。
         // 关键对象名：queryRouter（核心决策组件）。
+        // 为什么把判断逻辑放在 QueryRouter：
+        // 它处于 retrieval 入口，能在最早阶段中止检索，避免无意义的向量查询开销。
         QueryRouter queryRouter = new QueryRouter() {
 
             // 用一个极简二分类提示词，让 LLM 只回答 yes/no/maybe。
@@ -142,6 +148,8 @@ public class _06_Advanced_RAG_Skip_Retrieval_Example {
                 System.out.println("LLM decided: " + aiMessage.text());
 
                 // 决策为 no 时，直接返回空列表 => 本轮完全跳过检索。
+                // 这样做的效果：
+                // 回答只基于聊天模型自身能力，适合寒暄/闲聊等不依赖知识库的问题。
                 if (aiMessage.text().toLowerCase().contains("no")) {
                     return emptyList();
                 }
@@ -155,6 +163,8 @@ public class _06_Advanced_RAG_Skip_Retrieval_Example {
         // 子步骤 6.5：把路由器装进 RetrievalAugmentor。
         // 将路由器装进 RetrievalAugmentor。
         // 关键对象名：retrievalAugmentor（执行路由决策）。
+        // 为什么必须经过 retrievalAugmentor：
+        // queryRouter 是 augmentor 的可插拔组件，不通过 augmentor 无法接入这条决策链路。
         RetrievalAugmentor retrievalAugmentor = DefaultRetrievalAugmentor.builder()
                 .queryRouter(queryRouter)
                 .build();
@@ -188,6 +198,8 @@ public class _06_Advanced_RAG_Skip_Retrieval_Example {
         Document document = loadDocument(documentPath, documentParser);
 
         // embed 子步骤 e2：文档切片。
+        // 参数说明：
+        // 300 是块大小；0 是块间重叠。这里取 0 以降低索引冗余并突出“是否检索”这个主题。
         DocumentSplitter splitter = DocumentSplitters.recursive(300, 0);
         List<TextSegment> segments = splitter.split(document);
 

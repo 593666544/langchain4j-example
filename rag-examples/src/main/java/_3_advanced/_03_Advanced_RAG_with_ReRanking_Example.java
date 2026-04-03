@@ -93,6 +93,9 @@ public class _03_Advanced_RAG_with_ReRanking_Example {
         // 子步骤 3.2：构建摄取器。
         // 摄取器：负责把原始文档加工成可检索向量索引。
         // 关键对象名：ingestor。
+        // recursive(300, 0) 的含义：
+        // - 300：让每个候选块尽量“可读且可检索”；
+        // - 0：减少重复块，便于先观察重排本身的效果（避免 overlap 干扰实验）。
         EmbeddingStoreIngestor ingestor = EmbeddingStoreIngestor.builder()
                 .documentSplitter(DocumentSplitters.recursive(300, 0))
                 .embeddingModel(embeddingModel)
@@ -105,6 +108,8 @@ public class _03_Advanced_RAG_with_ReRanking_Example {
         // 子步骤 3.4：第一阶段召回（偏召回率）。
         // 第一阶段：召回时先放宽，拿更多候选。
         // 关键对象名：contentRetriever（第一阶段召回器）。
+        // 为什么 maxResults 设为 5：
+        // 重排前先“多捞一些”候选，给第二阶段提供排序空间，否则重排价值会被削弱。
         ContentRetriever contentRetriever = EmbeddingStoreContentRetriever.builder()
                 .embeddingStore(embeddingStore)
                 .embeddingModel(embeddingModel)
@@ -115,6 +120,8 @@ public class _03_Advanced_RAG_with_ReRanking_Example {
         // 第二阶段：重排模型（Cohere）。
         // 注册并获取免费 key：https://dashboard.cohere.com/welcome/register
         // 关键对象名：scoringModel（第二阶段精排评分器）。
+        // 为什么不用原始相似度直接当最终排序：
+        // 向量相似度是“粗排信号”，重排模型能利用更细粒度语义进行精排。
         ScoringModel scoringModel = CohereScoringModel.builder()
                 .apiKey(System.getenv("COHERE_API_KEY"))
                 .modelName("rerank-multilingual-v3.0")
@@ -123,6 +130,8 @@ public class _03_Advanced_RAG_with_ReRanking_Example {
         // 子步骤 3.6：构建重排聚合器。
         // 根据分数阈值过滤低相关片段，只将高质量上下文送入 LLM。
         // 关键对象名：contentAggregator。
+        // 参数取舍：
+        // minScore(0.8) 更偏保守，宁可少给上下文，也尽量避免噪声干扰最终回答。
         ContentAggregator contentAggregator = ReRankingContentAggregator.builder()
                 .scoringModel(scoringModel) // 用更强模型重新打分排序
                 .minScore(0.8) // 只保留高相关内容，减少噪声注入
@@ -131,6 +140,8 @@ public class _03_Advanced_RAG_with_ReRanking_Example {
         // 子步骤 3.7：组装 RetrievalAugmentor（召回 + 重排）。
         // 将 “初检索 + 重排聚合” 组装成完整 RetrievalAugmentor。
         // 关键对象名：retrievalAugmentor。
+        // 为什么要显式配置 contentAggregator：
+        // 默认聚合不会做二阶段重排，必须在 augmentor 中替换聚合策略才能生效。
         RetrievalAugmentor retrievalAugmentor = DefaultRetrievalAugmentor.builder()
                 .contentRetriever(contentRetriever)
                 .contentAggregator(contentAggregator)

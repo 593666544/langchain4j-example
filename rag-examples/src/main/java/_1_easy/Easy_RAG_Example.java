@@ -87,6 +87,7 @@ public class Easy_RAG_Example {
                 .chatModel(CHAT_MODEL)
                 // 子步骤 2.3 细化：MessageWindowChatMemory.withMaxMessages(10)
                 // 仅保留最近 10 条消息，用于控制 token 成本与上下文长度。
+                // 参数取舍：窗口太小会丢失对话连续性，太大会增加成本并引入历史噪声。
                 .chatMemory(MessageWindowChatMemory.withMaxMessages(10))
                 // 子步骤 2.4 细化：contentRetriever 是 RAG 检索入口。
                 // 每次提问时会做语义检索，召回片段后注入 prompt 作为回答依据。
@@ -117,6 +118,8 @@ public class Easy_RAG_Example {
         // 子步骤 1.1：InMemoryEmbeddingStore<TextSegment> 表示“向量对应原文类型是 TextSegment”。
         // 子步骤 1.2：该对象内部保存“向量 + 对应文本切片”的映射关系。
         // 子步骤 1.3：后续检索时会返回最相似向量对应的 TextSegment。
+        // 为什么要先创建它：RAG 检索的前提是“可搜索索引”，没有 embeddingStore，
+        // 后续就只能靠大模型裸答，无法基于企业私有知识做证据检索。
         InMemoryEmbeddingStore<TextSegment> embeddingStore = new InMemoryEmbeddingStore<>();
 
         // 步骤 2：执行摄取（Ingestion）。
@@ -125,12 +128,18 @@ public class Easy_RAG_Example {
         // 子步骤 2.3：对每个 TextSegment 计算 embedding 向量。
         // 子步骤 2.4：将“向量 + 原文切片”写入 embeddingStore。
         // 子步骤 2.5：这一行是 Easy RAG 的核心抽象：把多步底层流程打包成一个调用。
+        // 为什么用 ingestor：它把“切片策略 + 向量模型 + 入库动作”绑定在一起，
+        // 避免你在 PoC 阶段手写管线细节导致样板代码过多、学习焦点被分散。
+        // 注意：此便捷方法使用默认切片/向量化策略；若你要精调块大小、重叠、元数据策略，
+        // 可以改成 builder 方式显式传入 DocumentSplitter 等组件。
         EmbeddingStoreIngestor.ingest(documents, embeddingStore);
 
         // 步骤 3：由向量库构建检索器。
         // 子步骤 3.1：返回接口类型 ContentRetriever，便于上层解耦。
         // 子步骤 3.2：具体实现是 EmbeddingStoreContentRetriever。
         // 子步骤 3.3：运行时每轮会执行“问题向量化 -> 相似度检索 -> 返回候选片段”。
+        // 为什么要单独创建 retriever：它把“如何检索”从“如何回答”中解耦，
+        // 未来你可以替换为 metadata 过滤、重排、Web 检索而不影响上层 Assistant 接口。
         return EmbeddingStoreContentRetriever.from(embeddingStore);
     }
 }

@@ -83,6 +83,9 @@ public class _04_Advanced_RAG_with_Metadata_Example {
         // 子步骤 4.2：构建摄取器。
         // 摄取器：把文档加工为向量索引。
         // 关键对象名：ingestor。
+        // recursive(300, 0) 的作用：
+        // - 300 控制单块信息密度；
+        // - 0 避免重复片段，便于聚焦“metadata 注入”这个实验主题。
         EmbeddingStoreIngestor ingestor = EmbeddingStoreIngestor.builder()
                 .documentSplitter(DocumentSplitters.recursive(300, 0))
                 .embeddingModel(embeddingModel)
@@ -95,6 +98,8 @@ public class _04_Advanced_RAG_with_Metadata_Example {
 
         // 子步骤 4.4：创建内容检索器。
         // 关键对象名：contentRetriever（负责召回相关片段）。
+        // 为什么先保留默认检索器：
+        // metadata 注入属于“检索后注入策略”，不改变召回逻辑，只改变注入到 prompt 的内容结构。
         ContentRetriever contentRetriever = EmbeddingStoreContentRetriever.builder()
                 .embeddingStore(embeddingStore)
                 .embeddingModel(embeddingModel)
@@ -106,6 +111,8 @@ public class _04_Advanced_RAG_with_Metadata_Example {
         // - index: 当前片段在分片序列中的位置
         // 子步骤 4.5：创建元数据注入器。
         // 关键对象名：contentInjector（控制 prompt 中注入哪些 metadata）。
+        // 为什么要白名单 metadataKeysToInclude：
+        // 避免把无关/敏感 metadata 全量塞入 prompt，减少 token 成本并降低信息泄露风险。
         ContentInjector contentInjector = DefaultContentInjector.builder()
                 // .promptTemplate(...) // 也可以自定义“内容 + 元数据”的注入模板格式
                 .metadataKeysToInclude(asList("file_name", "index"))
@@ -114,6 +121,8 @@ public class _04_Advanced_RAG_with_Metadata_Example {
         // 子步骤 4.6：组装 RetrievalAugmentor（检索 + 元数据注入）。
         // 在 RetrievalAugmentor 中显式替换默认注入器。
         // 关键对象名：retrievalAugmentor。
+        // 为什么不在 chatModel 侧处理 metadata：
+        // 元数据拼装是 RAG 编排职责，放在 augmentor 层可复用且不污染模型调用层。
         RetrievalAugmentor retrievalAugmentor = DefaultRetrievalAugmentor.builder()
                 .contentRetriever(contentRetriever)
                 .contentInjector(contentInjector)

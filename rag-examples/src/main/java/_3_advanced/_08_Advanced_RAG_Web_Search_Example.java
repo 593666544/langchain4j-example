@@ -94,6 +94,8 @@ public class _08_Advanced_RAG_Web_Search_Example {
 
         // 子步骤 8.2：创建本地知识检索器。
         // 关键对象名：embeddingStoreContentRetriever（本地知识检索器）。
+        // 参数说明：
+        // maxResults(2) + minScore(0.6) 用于限制本地知识注入量，防止本地长文档压制 Web 结果。
         ContentRetriever embeddingStoreContentRetriever = EmbeddingStoreContentRetriever.builder()
                 .embeddingStore(embeddingStore)
                 .embeddingModel(embeddingModel)
@@ -104,12 +106,16 @@ public class _08_Advanced_RAG_Web_Search_Example {
         // 子步骤 8.3：初始化 Web 搜索引擎客户端。
         // 检索器 2：Web 搜索（外部知识）。
         // 关键对象名：webSearchEngine（Web 搜索引擎客户端）。
+        // 为什么拆成 webSearchEngine + webSearchContentRetriever 两层：
+        // 前者负责“如何搜”，后者负责“如何把搜索结果接入 RAG 检索协议”。
         WebSearchEngine webSearchEngine = TavilyWebSearchEngine.builder()
                 .apiKey(System.getenv("TAVILY_API_KEY")) // 免费 key 获取地址：https://app.tavily.com/sign-in
                 .build();
 
         // 子步骤 8.4：创建 Web 知识检索器。
         // 关键对象名：webSearchContentRetriever（外部知识检索器）。
+        // 参数取舍：
+        // maxResults(3) 通常比本地库多拿一些候选，因为网页内容噪声高，需要给后续模型筛选空间。
         ContentRetriever webSearchContentRetriever = WebSearchContentRetriever.builder()
                 .webSearchEngine(webSearchEngine)
                 .maxResults(3)
@@ -124,6 +130,8 @@ public class _08_Advanced_RAG_Web_Search_Example {
         // 子步骤 8.6：组装 RetrievalAugmentor（混合检索编排）。
         // 注入到 RetrievalAugmentor。
         // 关键对象名：retrievalAugmentor（混合检索编排器）。
+        // 为什么让 augmentor 聚合：
+        // 混合检索的核心价值在“统一注入上下文”，否则两个检索通道结果难以稳定融合。
         RetrievalAugmentor retrievalAugmentor = DefaultRetrievalAugmentor.builder()
                 .queryRouter(queryRouter)
                 .build();
@@ -159,6 +167,8 @@ public class _08_Advanced_RAG_Web_Search_Example {
         Document document = loadDocument(documentPath, documentParser);
 
         // embed 子步骤 e2：文档切片。
+        // 参数说明：
+        // 300 决定块大小；0 表示不重叠，便于降低本地索引冗余。
         DocumentSplitter splitter = DocumentSplitters.recursive(300, 0);
         List<TextSegment> segments = splitter.split(document);
 

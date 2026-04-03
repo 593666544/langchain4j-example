@@ -54,6 +54,8 @@ public class _09_Advanced_RAG_Return_Sources_Example {
 
         /**
          * 与普通 String 返回值相比，Result<String> 额外包含 sources 信息。
+         * 为什么要改返回类型：
+         * “答案 + 证据”是生产可解释性的基础，便于做人工复核与前端溯源展示。
          *
          * @param query 用户问题
          * @return Result 对象：content 为答案，sources 为检索来源
@@ -94,6 +96,8 @@ public class _09_Advanced_RAG_Return_Sources_Example {
                 // 子步骤 9.4：发起问答并拿到结构化结果。
                 // result.content()：最终自然语言答案。
                 // result.sources()：本轮参与回答的证据片段集合。
+                // 为什么先拿 result 再分别读字段：
+                // 这样你能同时处理“展示答案”和“展示证据”，而不是把证据链丢在框架内部。
                 Result<String> result = assistant.answer(userQuery);
                 log.info("==================================================");
                 log.info("Assistant: " + result.content());
@@ -102,6 +106,7 @@ public class _09_Advanced_RAG_Return_Sources_Example {
                 // 子步骤 9.5：输出来源列表，便于溯源学习。
                 // sources() 即本轮被检索并注入上下文的内容，通常包含文本与元数据。
                 // 关键对象名：sources（证据集合）。
+                // 没有这一步时，用户只能看到结论，看不到依据，排障与信任建设都更困难。
                 List<Content> sources = result.sources();
                 sources.forEach(content -> log.info(content.toString()));
             }
@@ -129,6 +134,10 @@ public class _09_Advanced_RAG_Return_Sources_Example {
                 embed(toPath("documents/miles-of-smiles-terms-of-use.txt"), embeddingModel);
 
         // 子步骤 9.A3：创建内容检索器。
+        // 为什么这里仍用常规 contentRetriever：
+        // “返回来源”不是新的检索算法，而是把已有检索结果暴露给调用方。
+        // 参数说明：
+        // maxResults(2) 与 minScore(0.6) 影响 sources 数量和质量，直接影响溯源可读性。
         ContentRetriever contentRetriever = EmbeddingStoreContentRetriever.builder()
                 .embeddingStore(embeddingStore)
                 .embeddingModel(embeddingModel)
@@ -144,6 +153,8 @@ public class _09_Advanced_RAG_Return_Sources_Example {
 
         // 关键：Assistant 接口返回类型是 Result<String>，因此可拿到 sources。
         // 子步骤 9.A5：组装并返回 Assistant。
+        // chatMemory(10) 的意义：
+        // 在多轮对话中保留近期上下文，避免来源解释与当前提问脱节。
         return AiServices.builder(Assistant.class)
                 .chatModel(chatModel)
                 .contentRetriever(contentRetriever)
@@ -166,6 +177,8 @@ public class _09_Advanced_RAG_Return_Sources_Example {
         Document document = loadDocument(documentPath, documentParser);
 
         // embed 子步骤 e2：文档切片。
+        // 参数说明：
+        // 300 控制块大小；0 表示不重叠。若你希望 sources 更连续，可适当增加 overlap。
         DocumentSplitter splitter = DocumentSplitters.recursive(300, 0);
         List<TextSegment> segments = splitter.split(document);
 

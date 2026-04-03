@@ -72,8 +72,14 @@ public class _01_Low_Level_Naive_RAG_Example {
         // 步骤 2：文档切片（Chunking 阶段）。
         // 子步骤 2.1：DocumentSplitters.recursive(...) 创建递归切分器。
         // 子步骤 2.2：300 代表目标片段大小（近似 token/字符控制）。
+        //            作用：定义“每块承载的信息密度”。
+        //            - 过大：检索粒度变粗，噪声增加；
+        //            - 过小：语义可能被切碎，回答上下文不完整。
         // 子步骤 2.3：0 代表块间不重叠。
+        //            作用：避免重复索引，节省存储与检索成本。
+        //            代价：段落边界信息可能断裂，生产通常会加少量 overlap 兜底。
         // 子步骤 2.4：OpenAiTokenCountEstimator("gpt-4o-mini") 让切分更贴近目标模型 token 计数。
+        //            作用：按“目标回答模型”的 token 视角切分，减少注入时超长或截断风险。
         // 子步骤 2.5：split(document) 执行切分，输出 List<TextSegment>。
         DocumentSplitter splitter = DocumentSplitters.recursive(
                 300,
@@ -111,7 +117,9 @@ public class _01_Low_Level_Naive_RAG_Example {
         // 子步骤 7.1：创建 EmbeddingSearchRequest（检索参数对象）。
         // 子步骤 7.2：queryEmbedding(questionEmbedding) 注入查询向量。
         // 子步骤 7.3：maxResults(3) 指定最多召回 3 条候选片段。
+        //            作用：控制召回上限；值越大信息更全，但噪声与 token 成本也更高。
         // 子步骤 7.4：minScore(0.7) 过滤低相关结果。
+        //            作用：设置相关性下限；阈值越高越干净，但可能漏掉边缘有用信息。
         // 子步骤 7.5：embeddingStore.search(request).matches() 获取命中列表。
         // 子步骤 7.6：relevantEmbeddings 类型是 List<EmbeddingMatch<TextSegment>>，
         //            每个元素包含：匹配分数 + 命中文本片段。
@@ -125,6 +133,7 @@ public class _01_Low_Level_Naive_RAG_Example {
         // 步骤 8：手动构造增强 Prompt（Augmentation 阶段）。
         // 子步骤 8.1：定义 PromptTemplate，包含两个占位符：{{question}} 与 {{information}}。
         // 子步骤 8.2：模板语义是“请基于给定信息回答问题”。
+        //            作用：把“问题”和“检索证据”分槽传给模型，降低模型忽略证据的概率。
         PromptTemplate promptTemplate = PromptTemplate.from(
                 "Answer the following question to the best of your ability:\n"
                         + "\n"
@@ -136,6 +145,7 @@ public class _01_Low_Level_Naive_RAG_Example {
 
         // 子步骤 8.3：把命中片段拼接为 information 文本上下文。
         // 说明：joining("\n\n") 使用双换行分段，便于模型区分不同片段。
+        // 代价：召回片段过多时 information 会膨胀，导致回答变慢或被截断。
         String information = relevantEmbeddings.stream()
                 .map(match -> match.embedded().text())
                 .collect(joining("\n\n"));
@@ -153,6 +163,7 @@ public class _01_Low_Level_Naive_RAG_Example {
         // 步骤 9：调用聊天模型生成答案（Generation 阶段）。
         // 子步骤 9.1：创建 OpenAiChatModel（回答生成器）。
         // 子步骤 9.2：timeout(60s) 防止网络慢时无限等待。
+        //            作用：给调用设置超时上限，避免线程长期阻塞。
         // 子步骤 9.3：prompt.toUserMessage() 把 Prompt 转成用户消息格式。
         // 子步骤 9.4：chatModel.chat(...) 发送请求并获取响应。
         // 子步骤 9.5：aiMessage 保存模型返回的消息对象。

@@ -110,7 +110,12 @@ public class Naive_RAG_Example {
         // 步骤 3：文档切片（Chunking）。
         // 子步骤 3.1：DocumentSplitters.recursive(300, 0) 创建递归切分器。
         // 子步骤 3.2：300 表示目标块大小（字符/Token近似，取决于实现）。
+        //            作用：决定“每个检索单元装多少信息”。
+        //            - 过大：语义太杂，检索命中后会带入更多噪声，且上下文成本上升；
+        //            - 过小：语义可能不完整，检索容易命中碎片，回答缺关键信息。
         // 子步骤 3.3：0 表示块间无重叠（教学场景先简化）。
+        //            作用：避免相邻块重复内容，降低索引体积与检索冗余。
+        //            代价：跨段信息可能被“切断”，真实生产常设 20~80 的 overlap 兜底。
         // 子步骤 3.4：split(document) 输出 List<TextSegment>。
         // 子步骤 3.5：每个 TextSegment 将成为向量索引的最小检索单元。
         DocumentSplitter splitter = DocumentSplitters.recursive(300, 0);
@@ -119,7 +124,10 @@ public class Naive_RAG_Example {
 
         // 步骤 4：文本向量化（Embedding）。
         // 子步骤 4.1：new BgeSmallEnV15QuantizedEmbeddingModel() 初始化 embedding 模型。
+        //            作用：把文本映射到向量空间，供“相似度检索”使用。
+        //            为什么要单独一个 embedding 模型：检索阶段比的是向量距离，不是原文字符串。
         // 子步骤 4.2：embedAll(segments) 对所有切片批量向量化。
+        //            批量处理的意义：减少逐条调用开销，入库效率更高。
         // 子步骤 4.3：content() 取出 List<Embedding>。
         // 子步骤 4.4：embeddings 与 segments 按索引一一对应。
         EmbeddingModel embeddingModel = new BgeSmallEnV15QuantizedEmbeddingModel();
@@ -141,7 +149,9 @@ public class Naive_RAG_Example {
         // 子步骤 6.1：embeddingStore(...) 声明“到哪个向量库检索”。
         // 子步骤 6.2：embeddingModel(...) 声明“如何把用户问题转查询向量”。
         // 子步骤 6.3：maxResults(2) 限制召回条数为 2，降低噪声与 token 成本。
+        //            调参经验：数值越大召回率通常越高，但 prompt 会更长、噪声也更容易混入。
         // 子步骤 6.4：minScore(0.5) 设置最低相似度阈值，过滤弱相关片段。
+        //            调参经验：阈值越高越“保守”（更干净但可能漏召回），越低越“宽松”（更全但更杂）。
         // 子步骤 6.5：build() 得到 ContentRetriever 实例。
         ContentRetriever contentRetriever = EmbeddingStoreContentRetriever.builder()
                 // 子步骤 6.1 代码位。
@@ -156,6 +166,7 @@ public class Naive_RAG_Example {
         // 步骤 7：配置对话记忆（可选但推荐）。
         // 子步骤 7.1：MessageWindowChatMemory.withMaxMessages(10) 创建窗口记忆。
         // 子步骤 7.2：仅保留最近 10 条消息，避免上下文无限膨胀。
+        //            参数作用：窗口越大，上下文连续性越强；但 token 成本和“历史噪声”也会增加。
         ChatMemory chatMemory = MessageWindowChatMemory.withMaxMessages(10);
 
 
@@ -165,6 +176,7 @@ public class Naive_RAG_Example {
         // 子步骤 8.3：contentRetriever(...) 注入检索器。
         // 子步骤 8.4：chatMemory(...) 注入多轮记忆。
         // 子步骤 8.5：build() 返回运行时代理，实现 Assistant.answer(...)。
+        //            这样分层的好处：回答模型、检索策略、记忆策略可独立替换，不互相耦合。
         return AiServices.builder(Assistant.class)
                 .chatModel(chatModel)
                 .contentRetriever(contentRetriever)

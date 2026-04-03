@@ -88,6 +88,8 @@ public class _07_Advanced_RAG_Multiple_Retrievers_Example {
         EmbeddingStore<TextSegment> embeddingStore1 =
                 embed(toPath("documents/miles-of-smiles-terms-of-use.txt"), embeddingModel);
         // 关键对象名：contentRetriever1。
+        // 参数说明：
+        // maxResults(2) + minScore(0.6) 控制每个数据源各自贡献的上下文量，避免单源淹没另一源。
         ContentRetriever contentRetriever1 = EmbeddingStoreContentRetriever.builder()
                 .embeddingStore(embeddingStore1)
                 .embeddingModel(embeddingModel)
@@ -100,6 +102,7 @@ public class _07_Advanced_RAG_Multiple_Retrievers_Example {
         EmbeddingStore<TextSegment> embeddingStore2 =
                 embed(toPath("documents/biography-of-john-doe.txt"), embeddingModel);
         // 关键对象名：contentRetriever2。
+        // 与检索器 1 保持相同参数，保证多源聚合时更公平、更可解释。
         ContentRetriever contentRetriever2 = EmbeddingStoreContentRetriever.builder()
                 .embeddingStore(embeddingStore2)
                 .embeddingModel(embeddingModel)
@@ -111,11 +114,15 @@ public class _07_Advanced_RAG_Multiple_Retrievers_Example {
         // 默认路由器：每次问题都并行路由到两个检索器。
         // 关键对象名：queryRouter。
         // DefaultQueryRouter 的行为：把同一 query 同时路由到传入的所有 retriever。
+        // 为什么要显式使用 QueryRouter：
+        // 它统一承载“一个问题要命中哪些检索器”的策略，后续可平滑切到更复杂路由方案。
         QueryRouter queryRouter = new DefaultQueryRouter(contentRetriever1, contentRetriever2);
 
         // 子步骤 7.5：把多检索器路由注入 RetrievalAugmentor。
         // 将“多检索器路由”注入 RetrievalAugmentor。
         // 关键对象名：retrievalAugmentor（执行多检索器并行检索并聚合结果）。
+        // 为什么不直接在业务层手动调用两个 retriever：
+        // 由 augmentor 统一编排可保持 RAG 生命周期一致，并复用聚合/注入等后续步骤。
         RetrievalAugmentor retrievalAugmentor = DefaultRetrievalAugmentor.builder()
                 .queryRouter(queryRouter)
                 .build();
@@ -147,10 +154,14 @@ public class _07_Advanced_RAG_Multiple_Retrievers_Example {
         // embed 子步骤 e1：读取文档。
         // 辅助方法：文档向量化入库。
         // 关键对象名：document / segments / embeddings / embeddingStore。
+        // 为什么封装成 embed(...)：
+        // 两个语料走同一入库流程，可避免参数漂移导致检索行为不一致。
         DocumentParser documentParser = new TextDocumentParser();
         Document document = loadDocument(documentPath, documentParser);
 
         // embed 子步骤 e2：文档切片。
+        // 参数说明：
+        // 300 控制每个检索块大小；0 关闭重叠，优先降低重复片段。
         DocumentSplitter splitter = DocumentSplitters.recursive(300, 0);
         List<TextSegment> segments = splitter.split(document);
 

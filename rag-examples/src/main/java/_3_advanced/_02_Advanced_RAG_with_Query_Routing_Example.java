@@ -92,9 +92,14 @@ public class _02_Advanced_RAG_with_Query_Routing_Example {
 
         // 子步骤 2.2：构建检索源 A（人物传记）。
         // 检索源 A：人物传记知识库。
+        // 为什么要拆成独立检索源：
+        // 语料域不同（人物传记 vs 条款制度）时，拆分索引更容易做路由与治理。
         EmbeddingStore<TextSegment> biographyEmbeddingStore =
                 embed(toPath("documents/biography-of-john-doe.txt"), embeddingModel);
         // 关键对象名：biographyContentRetriever（传记语料检索器）。
+        // 参数说明：
+        // maxResults(2) 控制注入片段数量，minScore(0.6) 过滤弱相关结果；
+        // 两者一起决定“召回覆盖率 vs 噪声/成本”的平衡。
         ContentRetriever biographyContentRetriever = EmbeddingStoreContentRetriever.builder()
                 .embeddingStore(biographyEmbeddingStore)
                 .embeddingModel(embeddingModel)
@@ -104,9 +109,12 @@ public class _02_Advanced_RAG_with_Query_Routing_Example {
 
         // 子步骤 2.3：构建检索源 B（租车条款）。
         // 检索源 B：租车条款知识库。
+        // 这样做的价值：
+        // 让每个 retriever 都有清晰的语义边界，避免“全量混合索引”带来的误召回。
         EmbeddingStore<TextSegment> termsOfUseEmbeddingStore =
                 embed(toPath("documents/miles-of-smiles-terms-of-use.txt"), embeddingModel);
         // 关键对象名：termsOfUseContentRetriever（条款语料检索器）。
+        // 保持与检索器 A 一致的参数，便于对比路由效果，避免“参数差异”干扰实验结论。
         ContentRetriever termsOfUseContentRetriever = EmbeddingStoreContentRetriever.builder()
                 .embeddingStore(termsOfUseEmbeddingStore)
                 .embeddingModel(embeddingModel)
@@ -126,11 +134,15 @@ public class _02_Advanced_RAG_with_Query_Routing_Example {
         // LLM 会根据用户问题与描述语义匹配，决定路由到哪个检索器。
         // 映射结构：检索器对象 -> 语义描述文本。
         // LLM 路由器会阅读描述并决定该问题应该走哪个检索器。
+        // 为什么描述文本很关键：
+        // LLM 路由器并不理解你的变量名，它依赖这些自然语言描述做语义匹配决策。
         Map<ContentRetriever, String> retrieverToDescription = new HashMap<>();
         retrieverToDescription.put(biographyContentRetriever, "biography of John Doe");
         retrieverToDescription.put(termsOfUseContentRetriever, "terms of use of car rental company");
         // 子步骤 2.6：构建 LLM 路由器。
         // 关键对象名：queryRouter。
+        // 为什么单独引入 queryRouter：
+        // 把“选哪个知识源”从“如何回答”中剥离，后续可替换成规则路由或混合策略。
         QueryRouter queryRouter = new LanguageModelQueryRouter(chatModel, retrieverToDescription);
 
         // 子步骤 2.7：把路由策略注入 RetrievalAugmentor。
@@ -170,6 +182,10 @@ public class _02_Advanced_RAG_with_Query_Routing_Example {
         Document document = loadDocument(documentPath, documentParser);
 
         // 子步骤 E2：文档切片。
+        // 为什么先切片再向量化：
+        // 检索单元过大会降低召回精度，过小会丢上下文；切片是检索质量的基础杠杆。
+        // 参数说明：
+        // 300 控制块大小；0 表示不重叠（成本更低，但边界语义可能断裂）。
         DocumentSplitter splitter = DocumentSplitters.recursive(300, 0);
         List<TextSegment> segments = splitter.split(document);
 

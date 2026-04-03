@@ -74,6 +74,8 @@ public class _10_Advanced_RAG_SQL_Database_Retreiver_Example {
 
         // 第 1 步：准备可查询的数据源（此处为内存 H2）。
         // 关键对象名：dataSource（SQL 检索的底层数据来源）。
+        // 为什么要独立 createDataSource()：
+        // SQL RAG 依赖结构化数据生命周期（建表/装载），与向量 RAG 的入库流程是两套机制。
         DataSource dataSource = createDataSource();
 
         // 第 2 步：准备聊天模型（既用于自然语言理解，也用于 SQL 生成）。
@@ -86,12 +88,16 @@ public class _10_Advanced_RAG_SQL_Database_Retreiver_Example {
         // 第 3 步：构建 SQL 内容检索器。
         // 它会把用户问题转成 SQL 并执行，把查询结果回填到上下文中。
         // 关键对象名：contentRetriever（SQL Retriever 实例）。
+        // 为什么要单独用 SqlDatabaseContentRetriever：
+        // 向量检索擅长语义相似片段召回，SQL 检索擅长精确筛选、聚合统计、排序分页等结构化查询。
         ContentRetriever contentRetriever = SqlDatabaseContentRetriever.builder()
                 .dataSource(dataSource)
                 .chatModel(chatModel)
                 .build();
 
         // 第 4 步：组装 AI Service。
+        // withMaxMessages(10) 的作用：
+        // 保留近期对话上下文，便于模型在追问时复用上一轮 SQL 检索语境；窗口过大会增加 token 成本。
         return AiServices.builder(Assistant.class)
                 .chatModel(chatModel)
                 .contentRetriever(contentRetriever)
@@ -120,6 +126,8 @@ public class _10_Advanced_RAG_SQL_Database_Retreiver_Example {
 
         // 子步骤 10.D2：读取并执行建表 SQL。
         // 关键对象名：createTablesScript（DDL 脚本文本）。
+        // 为什么拆成建表脚本与预置数据脚本：
+        // 结构定义（DDL）和样例数据（DML）职责分离，更接近真实数据库迁移流程。
         String createTablesScript = read("sql/create_tables.sql");
         execute(createTablesScript, dataSource);
 
@@ -163,6 +171,8 @@ public class _10_Advanced_RAG_SQL_Database_Retreiver_Example {
             // 真实生产建议使用成熟迁移工具（Flyway/Liquibase）管理 SQL 生命周期。
             // 关键对象名：connection / statement。
             // execute 子步骤 x1：将多语句脚本按分号切分。
+            // 为什么这里可以“简化执行”：
+            // 当前是教学示例的受控脚本；生产环境需处理事务、回滚、幂等和依赖顺序。
             for (String sqlStatement : sql.split(";")) {
                 // execute 子步骤 x2：逐条执行当前 SQL 语句。
                 statement.execute(sqlStatement.trim());
